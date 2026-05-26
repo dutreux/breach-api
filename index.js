@@ -27,6 +27,41 @@ async function setCache(competitor, report) {
   );
 }
 
+async function getProductHuntData(competitor) {
+  try {
+    const res = await axios.post(
+      'https://api.producthunt.com/v2/api/graphql',
+      {
+        query: `{
+          posts(query: "${competitor}", order: VOTES, first: 5) {
+            edges {
+              node {
+                name
+                tagline
+                description
+                reviewsRating
+                commentsCount
+                topics { edges { node { name } } }
+              }
+            }
+          }
+        }`
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PH_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    const posts = res.data.data.posts.edges.map(e => e.node);
+    return posts.map(p => `${p.name} - ${p.tagline} ${p.description || ''}`).join('\n');
+  } catch (err) {
+    return '';
+  }
+}
+
 app.post('/analyze', async (req, res) => {
   const { competitor } = req.body;
   if (!competitor) return res.status(400).json({ error: 'competitor required' });
@@ -42,25 +77,31 @@ app.post('/analyze', async (req, res) => {
       return;
     }
 
-    const serpRes = await axios.get('https://serpapi.com/search.json', {
-      params: {
-        q: `${competitor} reviews complaints problems users feedback`,
-        api_key: process.env.SERP_API_KEY,
-        num: 10,
-        hl: 'en',
-        gl: 'us'
-      },
-      timeout: 15000
-    });
+    const [serpRes, phText] = await Promise.all([
+      axios.get('https://serpapi.com/search.json', {
+        params: {
+          q: `${competitor} reviews complaints problems users feedback`,
+          api_key: process.env.SERP_API_KEY,
+          num: 10,
+          hl: 'en',
+          gl: 'us'
+        },
+        timeout: 15000
+      }),
+      getProductHuntData(competitor)
+    ]);
 
     const results = serpRes.data.organic_results || [];
-    const rawText = results
+    const serpText = results
       .map(r => `${r.title} ${r.snippet || ''}`.trim())
       .filter(t => t.length > 20)
-      .join('\n')
-      .slice(0, 8000);
+      .join('\n');
+
+    const rawText = [serpText, phText].filter(Boolean).join('\n').slice(0, 8000);
 
     if (!rawText || rawText.length < 100) throw new Error('Insufficient data from search');
+
+    const sources = ['Web reviews', phText ? 'Product Hunt' : null].filter(Boolean).join(', ');
 
     const claudeRes = await axios.post(
       'https://api.anthropic.com/v1/messages',
@@ -70,7 +111,7 @@ app.post('/analyze', async (req, res) => {
         system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. No explanation. Start your response with { and end with }.',
         messages: [{
           role: 'user',
-          content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"product_summary":"2-sentence description based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
+          content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"sources":"${sources}","product_summary":"2-sentence description based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
         }]
       },
       { headers: { 'x-api-key': process.env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } }
