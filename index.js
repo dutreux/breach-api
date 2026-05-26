@@ -41,7 +41,6 @@ async function getProductHuntData(competitor) {
                 description
                 reviewsRating
                 commentsCount
-                topics { edges { node { name } } }
               }
             }
           }
@@ -128,10 +127,19 @@ app.post('/analyze', async (req, res) => {
   }
 });
 
-app.get('/status/:jobId', (req, res) => {
-  const job = jobs[req.params.jobId];
-  if (!job) return res.status(404).json({ error: 'job not found' });
-  res.json(job);
+app.post('/email', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    await axios.post(
+      `${SUPABASE_URL}/rest/v1/emails`,
+      { email },
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(process.env.PORT || 3000, () => console.log('Lenso API running'));
