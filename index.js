@@ -39,7 +39,7 @@ app.post('/analyze', async (req, res) => {
     const claudeRes = await axios.post(
       'https://api.anthropic.com/v1/messages',
       {
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1500,
         system: 'You are a competitive intelligence analyst. Respond in JSON only. No markdown, no backticks. Base your analysis strictly on the provided user feedback text. Do not invent data.',
         messages: [{
