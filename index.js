@@ -41,7 +41,7 @@ app.post('/analyze', async (req, res) => {
       {
         model: 'claude-sonnet-4-5',
         max_tokens: 1500,
-        system: 'You are a competitive intelligence analyst. Respond in JSON only. No markdown, no backticks. Base your analysis strictly on the provided user feedback text. Do not invent data.',
+        system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. No explanation. Start your response with { and end with }.',
         messages: [{
           role: 'user',
           content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"product_summary":"2-sentence description based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
