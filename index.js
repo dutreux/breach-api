@@ -18,7 +18,14 @@ app.post('/analyze', async (req, res) => {
   try {
     const redditRes = await axios.get(
       `https://www.reddit.com/search.json?q=${encodeURIComponent(competitor)}&limit=25&sort=relevance&t=year`,
-      { headers: { 'User-Agent': 'lenso-app/1.0' }, timeout: 10000 }
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        timeout: 10000
+      }
     );
 
     const posts = redditRes.data.data.children.map(c => c.data);
