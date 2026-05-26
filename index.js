@@ -16,26 +16,25 @@ app.post('/analyze', async (req, res) => {
   res.json({ job_id: jobId });
 
   try {
-    const redditRes = await axios.get(
-      `https://www.reddit.com/search.json?q=${encodeURIComponent(competitor)}&limit=25&sort=relevance&t=year`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-        timeout: 10000
-      }
-    );
+    const serpRes = await axios.get('https://serpapi.com/search', {
+      params: {
+        q: `${competitor} reviews complaints problems users feedback site:reddit.com OR site:g2.com OR site:trustpilot.com`,
+        api_key: process.env.SERP_API_KEY,
+        num: 10,
+        hl: 'en',
+        gl: 'us'
+      },
+      timeout: 15000
+    });
 
-    const posts = redditRes.data.data.children.map(c => c.data);
-    const rawText = posts
-      .map(p => `${p.title} ${p.selftext || ''}`.trim())
+    const results = serpRes.data.organic_results || [];
+    const rawText = results
+      .map(r => `${r.title} ${r.snippet || ''}`.trim())
       .filter(t => t.length > 20)
       .join('\n')
       .slice(0, 8000);
 
-    if (!rawText || rawText.length < 100) throw new Error('Insufficient Reddit data');
+    if (!rawText || rawText.length < 100) throw new Error('Insufficient data from search');
 
     const claudeRes = await axios.post(
       'https://api.anthropic.com/v1/messages',
@@ -45,7 +44,7 @@ app.post('/analyze', async (req, res) => {
         system: 'You are a competitive intelligence analyst. Respond in JSON only. No markdown, no backticks. Base your analysis strictly on the provided user feedback text. Do not invent data.',
         messages: [{
           role: 'user',
-          content: `Analyze this real Reddit feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${posts.length},"product_summary":"2-sentence description of what this product does based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
+          content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"product_summary":"2-sentence description based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
         }]
       },
       { headers: { 'x-api-key': process.env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } }
