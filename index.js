@@ -6,6 +6,26 @@ app.use(cors());
 app.use(express.json());
 
 const jobs = {};
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+const CACHE_HOURS = parseInt(process.env.CACHE_TTL_HOURS || '24');
+
+async function getCache(competitor) {
+  const since = new Date(Date.now() - CACHE_HOURS * 3600000).toISOString();
+  const res = await axios.get(
+    `${SUPABASE_URL}/rest/v1/analyses?competitor=eq.${encodeURIComponent(competitor.toLowerCase())}&created_at=gte.${since}&limit=1`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  return res.data.length > 0 ? res.data[0].report : null;
+}
+
+async function setCache(competitor, report) {
+  await axios.post(
+    `${SUPABASE_URL}/rest/v1/analyses`,
+    { competitor: competitor.toLowerCase(), report },
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' } }
+  );
+}
 
 app.post('/analyze', async (req, res) => {
   const { competitor } = req.body;
@@ -16,6 +36,12 @@ app.post('/analyze', async (req, res) => {
   res.json({ job_id: jobId });
 
   try {
+    const cached = await getCache(competitor);
+    if (cached) {
+      jobs[jobId] = { status: 'done', report: cached, source: 'cache' };
+      return;
+    }
+
     const serpRes = await axios.get('https://serpapi.com/search.json', {
       params: {
         q: `${competitor} reviews complaints problems users feedback`,
@@ -51,7 +77,9 @@ app.post('/analyze', async (req, res) => {
     );
 
     const raw = claudeRes.data.content[0].text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-const report = JSON.parse(raw);
+    const report = JSON.parse(raw);
+
+    await setCache(competitor, report);
     jobs[jobId] = { status: 'done', report };
 
   } catch (err) {
