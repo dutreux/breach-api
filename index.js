@@ -50,7 +50,8 @@ app.post('/analyze', async (req, res) => {
       { headers: { 'x-api-key': process.env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } }
     );
 
-    const report = JSON.parse(claudeRes.data.content[0].text);
+    const raw = claudeRes.data.content[0].text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+const report = JSON.parse(raw);
     jobs[jobId] = { status: 'done', report };
 
   } catch (err) {
