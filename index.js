@@ -16,9 +16,9 @@ app.post('/analyze', async (req, res) => {
   res.json({ job_id: jobId });
 
   try {
-    const serpRes = await axios.get('https://serpapi.com/search', {
+    const serpRes = await axios.get('https://serpapi.com/search.json', {
       params: {
-        q: `${competitor} reviews complaints problems users feedback site:reddit.com OR site:g2.com OR site:trustpilot.com`,
+        q: `${competitor} reviews complaints problems users feedback`,
         api_key: process.env.SERP_API_KEY,
         num: 10,
         hl: 'en',
@@ -54,7 +54,7 @@ app.post('/analyze', async (req, res) => {
     jobs[jobId] = { status: 'done', report };
 
   } catch (err) {
-    jobs[jobId] = { status: 'error', error: err.message };
+    jobs[jobId] = { status: 'error', error: err.message, detail: err.response?.data || null };
   }
 });
 
