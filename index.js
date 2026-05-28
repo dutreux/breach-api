@@ -5,7 +5,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const jobs = {};
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const CACHE_HOURS = parseInt(process.env.CACHE_TTL_HOURS || '24');
@@ -27,32 +26,36 @@ async function setCache(competitor, report) {
   );
 }
 
+async function getJob(jobId) {
+  const res = await axios.get(
+    `${SUPABASE_URL}/rest/v1/jobs?job_id=eq.${jobId}&limit=1`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  return res.data.length > 0 ? res.data[0] : null;
+}
+
+async function setJob(jobId, data) {
+  await axios.post(
+    `${SUPABASE_URL}/rest/v1/jobs`,
+    { job_id: jobId, ...data },
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' } }
+  );
+}
+
+async function updateJob(jobId, data) {
+  await axios.patch(
+    `${SUPABASE_URL}/rest/v1/jobs?job_id=eq.${jobId}`,
+    data,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' } }
+  );
+}
+
 async function getProductHuntData(competitor) {
   try {
     const res = await axios.post(
       'https://api.producthunt.com/v2/api/graphql',
-      {
-        query: `{
-          posts(query: "${competitor}", order: VOTES, first: 5) {
-            edges {
-              node {
-                name
-                tagline
-                description
-                reviewsRating
-                commentsCount
-              }
-            }
-          }
-        }`
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PH_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
+      { query: `{ posts(query: "${competitor}", order: VOTES, first: 5) { edges { node { name tagline description } } } }` },
+      { headers: { Authorization: `Bearer ${process.env.PH_TOKEN}`, 'Content-Type': 'application/json' }, timeout: 10000 }
     );
     const posts = res.data.data.posts.edges.map(e => e.node);
     return posts.map(p => `${p.name} - ${p.tagline} ${p.description || ''}`).join('\n');
@@ -66,39 +69,29 @@ app.post('/analyze', async (req, res) => {
   if (!competitor) return res.status(400).json({ error: 'competitor required' });
 
   const jobId = Date.now().toString();
-  jobs[jobId] = { status: 'pending', competitor };
+  await setJob(jobId, { status: 'pending', competitor });
   res.json({ job_id: jobId });
 
   try {
     const cached = await getCache(competitor);
     if (cached) {
-      jobs[jobId] = { status: 'done', report: cached, source: 'cache' };
+      await updateJob(jobId, { status: 'done', report: cached });
       return;
     }
 
     const [serpRes, phText] = await Promise.all([
       axios.get('https://serpapi.com/search.json', {
-        params: {
-          q: `${competitor} reviews complaints problems users feedback`,
-          api_key: process.env.SERP_API_KEY,
-          num: 10,
-          hl: 'en',
-          gl: 'us'
-        },
+        params: { q: `${competitor} reviews complaints problems users feedback`, api_key: process.env.SERP_API_KEY, num: 10, hl: 'en', gl: 'us' },
         timeout: 15000
       }),
       getProductHuntData(competitor)
     ]);
 
     const results = serpRes.data.organic_results || [];
-    const serpText = results
-      .map(r => `${r.title} ${r.snippet || ''}`.trim())
-      .filter(t => t.length > 20)
-      .join('\n');
-
+    const serpText = results.map(r => `${r.title} ${r.snippet || ''}`.trim()).filter(t => t.length > 20).join('\n');
     const rawText = [serpText, phText].filter(Boolean).join('\n').slice(0, 8000);
 
-    if (!rawText || rawText.length < 100) throw new Error('Insufficient data from search');
+    if (!rawText || rawText.length < 100) throw new Error('Insufficient data');
 
     const sources = ['Web reviews', phText ? 'Product Hunt' : null].filter(Boolean).join(', ');
 
@@ -107,11 +100,8 @@ app.post('/analyze', async (req, res) => {
       {
         model: 'claude-sonnet-4-5',
         max_tokens: 1500,
-        system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. No explanation. Start your response with { and end with }.',
-        messages: [{
-          role: 'user',
-          content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"sources":"${sources}","product_summary":"2-sentence description based on the feedback","top_weakness":"single most critical weakness mentioned by users","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string based on real feedback","opportunity":"how a competitor could exploit this gap"}]}`
-        }]
+        system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. Start your response with { and end with }.',
+        messages: [{ role: 'user', content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"sources":"${sources}","product_summary":"2-sentence description","top_weakness":"most critical weakness","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string","opportunity":"string"}]}` }]
       },
       { headers: { 'x-api-key': process.env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } }
     );
@@ -120,10 +110,20 @@ app.post('/analyze', async (req, res) => {
     const report = JSON.parse(raw);
 
     await setCache(competitor, report);
-    jobs[jobId] = { status: 'done', report };
+    await updateJob(jobId, { status: 'done', report });
 
   } catch (err) {
-    jobs[jobId] = { status: 'error', error: err.message, detail: err.response?.data || null };
+    await updateJob(jobId, { status: 'error', error: err.message });
+  }
+});
+
+app.get('/status/:jobId', async (req, res) => {
+  try {
+    const job = await getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
