@@ -136,8 +136,41 @@ app.post('/analyze', async (req, res) => {
       {
         model: 'claude-sonnet-4-5',
         max_tokens: 2000,
-        system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. Start your response with { and end with }.',
-        messages: [{ role: 'user', content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"sources":"${sources}","product_summary":"2-sentence description","top_weakness":"most critical weakness","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string","opportunity":"string"}]}` }]
+        system: 'You are a competitive intelligence analyst helping SaaS founders identify weaknesses in competitor products they can exploit. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. Start your response with { and end with }.',
+        messages: [{ role: 'user', content: `Analyze this real user feedback about ${competitor}. Only use what is explicitly stated in the sources below. Do not infer or generalize beyond what users actually said.
+
+${rawText}
+
+Return a single valid JSON object with this exact structure:
+{
+  "competitor": "${competitor}",
+  "reviews_analyzed": ${results.length},
+  "sources": "${sources}",
+  "product_summary": "2 sentences max. What the product does and who it is for, based only on the content above.",
+  "top_weakness": "The most frequently mentioned problem in one sentence, grounded in the sources.",
+  "what_users_love": [
+    "Specific positive point (from [source type])",
+    "Specific positive point (from [source type])",
+    "Specific positive point (from [source type])"
+  ],
+  "what_users_hate": [
+    "Specific negative point (from [source type])",
+    "Specific negative point (from [source type])",
+    "Specific negative point (from [source type])"
+  ],
+  "pain_points": [
+    {
+      "rank": 1,
+      "title": "Short label, 4 words max",
+      "category": "UX|Pricing|Support|Performance|Integrations",
+      "severity": 75,
+      "frequency": 65,
+      "evidence": "Direct quote or close paraphrase from the sources (from [source type])",
+      "description": "2-3 sentences explaining the problem based strictly on what users said. Be specific, not generic.",
+      "opportunity": "One concrete action a SaaS founder could take TODAY to win users who are frustrated by this. Be specific: name the feature, the positioning angle, or the gap to fill. Not generic advice."
+    }
+  ]
+}` }]
       },
       { headers: { 'x-api-key': process.env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } }
     );
