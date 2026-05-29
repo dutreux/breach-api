@@ -64,6 +64,27 @@ async function getProductHuntData(competitor) {
   }
 }
 
+// Fetche le contenu complet d'une URL — retourne null si bloquée ou timeout
+async function fetchUrlContent(url) {
+  try {
+    const res = await axios.get(url, {
+      timeout: 5000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' },
+      maxContentLength: 500000
+    });
+    const html = res.data;
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.slice(0, 3000);
+  } catch {
+    return null;
+  }
+}
+
 app.post('/analyze', async (req, res) => {
   const { competitor } = req.body;
   if (!competitor) return res.status(400).json({ error: 'competitor required' });
@@ -88,8 +109,23 @@ app.post('/analyze', async (req, res) => {
     ]);
 
     const results = serpRes.data.organic_results || [];
-    const serpText = results.map(r => `${r.title} ${r.snippet || ''}`.trim()).filter(t => t.length > 20).join('\n');
-    const rawText = [serpText, phText].filter(Boolean).join('\n').slice(0, 8000);
+
+    // Fetch le contenu complet des 5 premières URLs en parallèle
+    const urlsToFetch = results
+      .filter(r => r.link)
+      .slice(0, 5)
+      .map(r => fetchUrlContent(r.link));
+
+    const fetchedContents = await Promise.all(urlsToFetch);
+
+    // Combine snippet + contenu complet par résultat
+    const serpText = results.map((r, i) => {
+      const fullContent = fetchedContents[i];
+      const base = `${r.title}\n${r.snippet || ''}`;
+      return fullContent ? `${base}\n${fullContent}` : base;
+    }).filter(t => t.length > 20).join('\n\n');
+
+    const rawText = [serpText, phText].filter(Boolean).join('\n').slice(0, 20000);
 
     if (!rawText || rawText.length < 100) throw new Error('Insufficient data');
 
@@ -99,7 +135,7 @@ app.post('/analyze', async (req, res) => {
       'https://api.anthropic.com/v1/messages',
       {
         model: 'claude-sonnet-4-5',
-        max_tokens: 1500,
+        max_tokens: 2000,
         system: 'You are a competitive intelligence analyst. You must respond with a single valid JSON object only. No markdown. No backticks. No code blocks. Start your response with { and end with }.',
         messages: [{ role: 'user', content: `Analyze this real user feedback about ${competitor}.\n\n${rawText}\n\nReturn JSON:\n{"competitor":"${competitor}","reviews_analyzed":${results.length},"sources":"${sources}","product_summary":"2-sentence description","top_weakness":"most critical weakness","what_users_love":["string","string","string"],"what_users_hate":["string","string","string"],"pain_points":[{"rank":1,"title":"string","category":"UX|Pricing|Support|Performance|Integrations","severity":80,"frequency":70,"description":"string","opportunity":"string"}]}` }]
       },
