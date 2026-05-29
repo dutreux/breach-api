@@ -146,6 +146,7 @@ Return a single valid JSON object with this exact structure:
   "competitor": "${competitor}",
   "reviews_analyzed": ${results.length},
   "sources": "${sources}",
+  "sources_detail": ["List only source types actually found in the content above, e.g. Trustpilot, Reddit, G2, Capterra, Product Hunt, DEV Community, blog reviews, forum posts. Max 5 items. Only include what is genuinely present."],
   "product_summary": "2 sentences max. What the product does and who it is for, based only on the content above.",
   "top_weakness": "The most frequently mentioned problem in one sentence, grounded in the sources.",
   "what_users_love": [
